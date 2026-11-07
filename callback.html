@@ -13,8 +13,8 @@ body{background:#0A0A0F;color:#E2E8F0;font-family:-apple-system,BlinkMacSystemFo
 .logo svg{width:28px;height:28px;fill:white}
 h1{font-size:22px;font-weight:700;letter-spacing:-0.03em;margin-bottom:6px}
 .sub{font-size:14px;color:#64748B;margin-bottom:28px}
-.token-box{background:#0A0A0F;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 16px;font-size:11px;font-family:'SF Mono','Fira Mono',monospace;color:#A78BFA;word-break:break-all;line-height:1.6;text-align:left;max-height:120px;overflow-y:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch}
-.token-box::-webkit-scrollbar{display:none}
+.code-box{background:#0A0A0F;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 16px;font-size:11px;font-family:'SF Mono','Fira Mono',monospace;color:#A78BFA;word-break:break-all;line-height:1.6;text-align:left;max-height:120px;overflow-y:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch}
+.code-box::-webkit-scrollbar{display:none}
 .copy-btn{background:#7C3AED;color:white;border:none;border-radius:999px;padding:14px 32px;font-size:15px;font-weight:600;cursor:pointer;width:100%;transition:all .15s;letter-spacing:.01em}
 .copy-btn:active{transform:scale(.96);background:#A78BFA}
 .copy-btn.copied{background:#059669}
@@ -26,7 +26,9 @@ h1{font-size:22px;font-weight:700;letter-spacing:-0.03em;margin-bottom:6px}
 .error-state{color:#F87171;font-size:14px;margin-bottom:16px}
 .sonic-link{display:inline-block;margin-top:16px;font-size:13px;color:#7C3AED;text-decoration:none;font-weight:500}
 .sonic-link:active{opacity:.7}
-.expiry{font-size:11px;color:#475569;margin-top:10px}
+.spinner{display:inline-block;width:32px;height:32px;border:3px solid rgba(167,139,250,0.2);border-top-color:#A78BFA;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.success-icon{font-size:48px;margin-bottom:12px}
 </style>
 </head>
 <body>
@@ -35,14 +37,16 @@ h1{font-size:22px;font-weight:700;letter-spacing:-0.03em;margin-bottom:6px}
     <svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>
   </div>
   <h1>Sonic</h1>
-  <div class="sub" id="sub">Reading your token…</div>
-  <div id="main"></div>
+  <div class="sub" id="sub">Connecting to Spotify…</div>
+  <div id="main"><div class="spinner"></div></div>
 </div>
 <script>
-var _tok = '';
+var _code = '';
+var _cid = '';
+var _verifier = '';
 
-function getParam(hash, key) {
-  var parts = hash.replace(/^#/, '').split('&');
+function getParam(search, key) {
+  var parts = search.replace(/^\?/, '').split('&');
   for (var i = 0; i < parts.length; i++) {
     var kv = parts[i].split('=');
     if (decodeURIComponent(kv[0]) === key) return decodeURIComponent(kv[1] || '');
@@ -51,57 +55,122 @@ function getParam(hash, key) {
 }
 
 function init() {
-  var hash = window.location.hash;
   var main = document.getElementById('main');
   var sub = document.getElementById('sub');
 
-  var tok = getParam(hash, 'access_token');
-  var exp = getParam(hash, 'expires_in');
+  // PKCE: code comes in query string (?code=...)
+  var code = getParam(window.location.search, 'code');
+  var error = getParam(window.location.search, 'error');
 
-  if (!tok) {
-    sub.textContent = 'No token found.';
-    main.innerHTML = '<div class="error-state">Spotify didn\'t return a token. Go back to Sonic and tap Connect again.</div>';
+  if (error) {
+    sub.textContent = 'Authorization cancelled.';
+    main.innerHTML = '<div class="error-state">Spotify returned: ' + error + '.<br>Go back to Sonic and tap Connect again.</div>';
     return;
   }
 
-  _tok = tok;
+  if (!code) {
+    sub.textContent = 'No code found.';
+    main.innerHTML = '<div class="error-state">Spotify didn\'t return a code. Go back to Sonic and tap Connect again.</div>';
+    return;
+  }
 
+  _code = code;
+
+  // Try to get verifier + cid from localStorage (same-domain flow won't work cross-origin,
+  // but show the code so user can paste back manually if needed)
   try {
-    localStorage.setItem('sc_token', tok);
-    localStorage.setItem('sc_expiry', String(Date.now() + parseInt(exp || '3600') * 1000));
+    _cid = localStorage.getItem('sc_cid') || '';
+    _verifier = localStorage.getItem('sc_verifier') || '';
   } catch(e) {}
 
-  try { history.replaceState(null, '', location.pathname); } catch(e) {}
-
-  var mins = Math.round(parseInt(exp || '3600') / 60);
-  sub.textContent = 'Token ready — copy it into Sonic.';
-
-  main.innerHTML =
-    '<div class="token-box" id="tok-display">' + tok + '</div>' +
-    '<button class="copy-btn" id="copy-btn">Copy Token</button>' +
-    '<div class="expiry">Valid for ~' + mins + ' minutes</div>' +
-    '<div class="instruct">' +
-      '<div class="instruct-title">Next step</div>' +
-      '<div class="step"><div class="snum">1</div><div>Tap <strong style="color:#E2E8F0">Copy Token</strong> above</div></div>' +
-      '<div class="step"><div class="snum">2</div><div>Switch back to Sonic, paste the token, tap Connect</div></div>' +
-    '</div>';
-
-  document.getElementById('copy-btn').addEventListener('click', copyToken);
-}
-
-function copyToken() {
-  if (!_tok) return;
-  var btn = document.getElementById('copy-btn');
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(_tok).then(function(){ showCopied(btn); }).catch(function(){ fallback(btn); });
+  // Try to exchange automatically
+  if (_cid && _verifier) {
+    sub.textContent = 'Exchanging code for token…';
+    exchangeCode(code, _cid, _verifier);
   } else {
-    fallback(btn);
+    // Can't exchange without verifier — show code for manual copy back to Sonic
+    showCodeFallback(code);
   }
 }
 
-function fallback(btn) {
+function exchangeCode(code, cid, verifier) {
+  var main = document.getElementById('main');
+  var sub = document.getElementById('sub');
+
+  var body = 'grant_type=authorization_code' +
+    '&code=' + encodeURIComponent(code) +
+    '&redirect_uri=' + encodeURIComponent(window.location.href.split('?')[0]) +
+    '&client_id=' + encodeURIComponent(cid) +
+    '&code_verifier=' + encodeURIComponent(verifier);
+
+  fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (!d.access_token) {
+      sub.textContent = 'Token exchange failed.';
+      main.innerHTML = '<div class="error-state">Could not get token from Spotify.<br>Try going back to Sonic and connecting again.</div>';
+      return;
+    }
+    // Store tokens
+    try {
+      localStorage.setItem('sc_token', d.access_token);
+      localStorage.setItem('sc_expiry', String(Date.now() + (parseInt(d.expires_in) || 3600) * 1000));
+      if (d.refresh_token) localStorage.setItem('sc_refresh', d.refresh_token);
+      localStorage.removeItem('sc_verifier');
+    } catch(e) {}
+
+    sub.textContent = 'Connected! Copy your token into Sonic.';
+
+    var mins = Math.round((parseInt(d.expires_in) || 3600) / 60);
+    main.innerHTML =
+      '<div class="code-box" id="tok-display">' + d.access_token + '</div>' +
+      '<button class="copy-btn" id="copy-btn">Copy Token</button>' +
+      '<div style="font-size:11px;color:#475569;margin-top:10px">Valid for ~' + mins + ' minutes</div>' +
+      '<div class="instruct">' +
+        '<div class="instruct-title">Next step</div>' +
+        '<div class="step"><div class="snum">1</div><div>Tap <strong style="color:#E2E8F0">Copy Token</strong> above</div></div>' +
+        '<div class="step"><div class="snum">2</div><div>Switch back to Sonic, paste the token, tap Connect</div></div>' +
+      '</div>';
+
+    document.getElementById('copy-btn').addEventListener('click', function() { copyText(d.access_token); });
+  })
+  .catch(function() {
+    document.getElementById('sub').textContent = 'Network error.';
+    document.getElementById('main').innerHTML = '<div class="error-state">Could not reach Spotify. Check your connection and try again.</div>';
+  });
+}
+
+function showCodeFallback(code) {
+  var sub = document.getElementById('sub');
+  var main = document.getElementById('main');
+  sub.textContent = 'Copy this code into Sonic.';
+  main.innerHTML =
+    '<div class="code-box" id="code-display">' + code + '</div>' +
+    '<button class="copy-btn" id="copy-btn">Copy Code</button>' +
+    '<div class="instruct">' +
+      '<div class="instruct-title">Next step</div>' +
+      '<div class="step"><div class="snum">1</div><div>Tap <strong style="color:#E2E8F0">Copy Code</strong> above</div></div>' +
+      '<div class="step"><div class="snum">2</div><div>Switch back to Sonic, paste the code, tap Connect</div></div>' +
+    '</div>';
+  document.getElementById('copy-btn').addEventListener('click', function() { copyText(code); });
+}
+
+function copyText(text) {
+  var btn = document.getElementById('copy-btn');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function(){ showCopied(btn); }).catch(function(){ fallback(text, btn); });
+  } else {
+    fallback(text, btn);
+  }
+}
+
+function fallback(text, btn) {
   var ta = document.createElement('textarea');
-  ta.value = _tok;
+  ta.value = text;
   ta.setAttribute('readonly', '');
   ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px';
   document.body.appendChild(ta);
@@ -116,7 +185,7 @@ function showCopied(btn) {
   if (!btn) return;
   btn.textContent = '✓ Copied!';
   btn.classList.add('copied');
-  setTimeout(function(){ btn.textContent = 'Copy Token'; btn.classList.remove('copied'); }, 2500);
+  setTimeout(function(){ btn.textContent = btn.id === 'copy-btn' ? 'Copy Token' : 'Copy Code'; btn.classList.remove('copied'); }, 2500);
 }
 
 if (document.readyState === 'loading') {
