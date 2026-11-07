@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Sonic — Connect</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0A0A0F;color:#E2E8F0;font-family:-apple-system,BlinkMacSystemFont,'Inter',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{background:#13131A;border:1px solid rgba(167,139,250,0.15);border-radius:20px;padding:32px 28px;max-width:420px;width:100%;text-align:center}
+.logo{width:52px;height:52px;background:linear-gradient(135deg,#7C3AED,#A78BFA);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
+.logo svg{width:28px;height:28px;fill:white}
+h1{font-size:22px;font-weight:700;letter-spacing:-0.03em;margin-bottom:6px}
+.sub{font-size:14px;color:#64748B;margin-bottom:28px}
+.token-box{background:#0A0A0F;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 16px;font-size:11px;font-family:'SF Mono','Fira Mono',monospace;color:#A78BFA;word-break:break-all;line-height:1.6;text-align:left;max-height:120px;overflow-y:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch}
+.token-box::-webkit-scrollbar{display:none}
+.copy-btn{background:#7C3AED;color:white;border:none;border-radius:999px;padding:14px 32px;font-size:15px;font-weight:600;cursor:pointer;width:100%;transition:all .15s;letter-spacing:.01em}
+.copy-btn:active{transform:scale(.96);background:#A78BFA}
+.copy-btn.copied{background:#059669}
+.instruct{margin-top:20px;background:#1C1C26;border-radius:12px;padding:16px;text-align:left}
+.instruct-title{font-size:12px;font-weight:600;color:#94A3B8;margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em}
+.step{display:flex;gap:10px;margin-bottom:8px;font-size:13px;color:#94A3B8;line-height:1.5}
+.step:last-child{margin-bottom:0}
+.snum{background:#2D2D3D;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0;margin-top:1px}
+.error-state{color:#F87171;font-size:14px;margin-bottom:16px}
+.sonic-link{display:inline-block;margin-top:16px;font-size:13px;color:#7C3AED;text-decoration:none;font-weight:500}
+.sonic-link:active{opacity:.7}
+.expiry{font-size:11px;color:#475569;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="logo">
+    <svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>
+  </div>
+  <h1>Sonic</h1>
+  <div class="sub" id="sub">Reading your token…</div>
+  <div id="main"></div>
+</div>
+<script>
+var _tok = '';
+
+function getParam(hash, key) {
+  var parts = hash.replace(/^#/, '').split('&');
+  for (var i = 0; i < parts.length; i++) {
+    var kv = parts[i].split('=');
+    if (decodeURIComponent(kv[0]) === key) return decodeURIComponent(kv[1] || '');
+  }
+  return null;
+}
+
+function init() {
+  var hash = window.location.hash;
+  var main = document.getElementById('main');
+  var sub = document.getElementById('sub');
+
+  var tok = getParam(hash, 'access_token');
+  var exp = getParam(hash, 'expires_in');
+
+  if (!tok) {
+    sub.textContent = 'No token found.';
+    main.innerHTML = '<div class="error-state">Spotify didn\'t return a token. Go back to Sonic and tap Connect again.</div>';
+    return;
+  }
+
+  _tok = tok;
+
+  try {
+    localStorage.setItem('sc_token', tok);
+    localStorage.setItem('sc_expiry', String(Date.now() + parseInt(exp || '3600') * 1000));
+  } catch(e) {}
+
+  try { history.replaceState(null, '', location.pathname); } catch(e) {}
+
+  var mins = Math.round(parseInt(exp || '3600') / 60);
+  sub.textContent = 'Token ready — copy it into Sonic.';
+
+  main.innerHTML =
+    '<div class="token-box" id="tok-display">' + tok + '</div>' +
+    '<button class="copy-btn" id="copy-btn">Copy Token</button>' +
+    '<div class="expiry">Valid for ~' + mins + ' minutes</div>' +
+    '<div class="instruct">' +
+      '<div class="instruct-title">Next step</div>' +
+      '<div class="step"><div class="snum">1</div><div>Tap <strong style="color:#E2E8F0">Copy Token</strong> above</div></div>' +
+      '<div class="step"><div class="snum">2</div><div>Switch back to Sonic, paste the token, tap Connect</div></div>' +
+    '</div>';
+
+  document.getElementById('copy-btn').addEventListener('click', copyToken);
+}
+
+function copyToken() {
+  if (!_tok) return;
+  var btn = document.getElementById('copy-btn');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(_tok).then(function(){ showCopied(btn); }).catch(function(){ fallback(btn); });
+  } else {
+    fallback(btn);
+  }
+}
+
+function fallback(btn) {
+  var ta = document.createElement('textarea');
+  ta.value = _tok;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { document.execCommand('copy'); } catch(e) {}
+  document.body.removeChild(ta);
+  showCopied(btn);
+}
+
+function showCopied(btn) {
+  if (!btn) return;
+  btn.textContent = '✓ Copied!';
+  btn.classList.add('copied');
+  setTimeout(function(){ btn.textContent = 'Copy Token'; btn.classList.remove('copied'); }, 2500);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+</script>
+</body>
+</html>
